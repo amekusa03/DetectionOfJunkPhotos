@@ -1,0 +1,64 @@
+@startuml
+skinparam @startuml
+skinparam classAttributeIconSize 0
+
+'' 外部ライブラリ（PySide6）のクラス
+class QObject {
+}
+
+'' ベースクラス
+class BaseNodeObject {
+    + updated : Signal
+    + path : str
+    + name : str
+    - _is_selected : bool
+    + size : int
+    --
+    + is_selected() : bool
+    + is_selected(value: bool)
+    + exists() : bool
+    + modified_time() : float
+    + created_time() : float
+    + icon() : str
+    + type_name() : str
+    + size_str() : str
+    + has_preview() : bool
+    {static} + create(path: str) : BaseNodeObject
+}
+
+'' ファイルを表す子クラス
+class FileNodeObject {
+    + extension : str
+    --
+    + size_str() : str
+    + icon() : str
+    + type_name() : str
+}
+
+'' 画像ファイルを表す子クラス
+class ImageNodeObject {
+    {static} + SUPPORTED_EXTENSIONS : set
+    --
+    + icon() : str
+    + type_name() : str
+    + has_preview() : bool
+}
+
+'' ディレクトリを表す子クラス
+class DirectoryNodeObject {
+    + children : list<BaseNodeObject>
+    --
+    + icon() : str
+    + type_name() : str
+}
+
+'' 継承関係の定義
+QObject <|-- BaseNodeObject
+BaseNodeObject <|-- FileNodeObject
+FileNodeObject <|-- ImageNodeObject
+BaseNodeObject <|-- DirectoryNodeObject
+
+'' コンポジション（フォルダが複数のノードを持つ関係）
+DirectoryNodeObject "1" *-- "0..*" BaseNodeObject
+
+@endum
