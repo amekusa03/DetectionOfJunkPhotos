@@ -1,78 +1,102 @@
-# Antigravity Filer - Photo & File Manager (ピンぼけ・連続写真・類似写真整理アプリ)
+<div align="right">
+  <b>English | <a href="README.jp.md">日本語</a></b>
+</div>
 
-このプロジェクトは、Python (PySide6) でファイルやディレクトリを操作するGUIマネージャーアプリケーションです。
-一般的なファイル管理機能に加え、**OpenCV・PIL・知覚ハッシュ（dHash）**を用いた高度な写真解析機能（ピンぼけ検出、連続写真抽出、類似写真グループ化、ごみ箱整理）を備えています。
-解析済みのハッシュ値やピントスコアは **SQLite に永続キャッシュ** されるため、アプリ再起動後も爆速で動作します。
+# Antigravity Filer - Photo & File Manager (Blur, Burst & Similar Photo Organizer)
+
+Antigravity Filer is a modern GUI file manager application built with Python (**PySide6**).
+In addition to standard file management features, it integrates advanced computer vision and image processing capabilities (**OpenCV**, **PIL**, and **dHash perceptual hashing**) to detect blurry photos, group continuous burst shots, find duplicate/similar photos, and organize unwanted files into the trash with a single click.
+
+Analyzed hashes, EXIF timestamps, and focus sharpness scores are **persisted in an SQLite cache**, making subsequent scans and application restarts lightning fast.
 
 ---
 
-## 📂 プロジェクト構成
+## 📂 Project Structure
 
 ```
-PhotoIsOutOfFocus/
-├── BaseNodeObject.py      # データモデル（ノード情報・アイコン・画像メタデータの保持）
-├── FilerRepository.py     # リポジトリ（ファイルシステム操作・ごみ箱移動・各種探索処理）
-├── HashCacheManager.py    # 永続キャッシュマネージャー (SQLite3 / dHash・EXIF日時・ピントスコア保存)
-├── BlurDetector.py        # ピンぼけ・鮮鋭度検出エンジン (Laplacian / グリッド評価 / 顔検出)
-├── BlurSearchDialog.py    # ピンぼけ画像検索ダイアログ
-├── BurstPhotoManager.py   # 連続写真（バーストショット）抽出・ピント比較エンジン (EXIF優先/mtime対応)
-├── BurstPhotoDialog.py    # 連続写真ピント判定・ごみ箱整理ダイアログ
-├── SimilarPhotoManager.py # 類似写真抽出・グループ化エンジン (dHash知覚ハッシュ / ハミング距離)
-├── SimilarPhotoDialog.py  # 類似写真ピント判定・ごみ箱整理ダイアログ
-├── main.py                # GUIメインウィンドウ (PySide6)
-└── README.md              # 本書
+DetectionOfJunkPhotos/
+├── i18n.py                # Internationalization module (Dynamic English/Japanese switching & persistence)
+├── BaseNodeObject.py      # Data models (Node hierarchy, icons, formatters, metadata)
+├── FilerRepository.py     # Repository layer (File system operations, trash management, search pipelines)
+├── HashCacheManager.py    # Persistent cache manager (SQLite3 for dHash, EXIF timestamp & sharpness scores)
+├── BlurDetector.py        # Focus/Sharpness & Blur detection engine (Laplacian variance, grid analysis, face cascade)
+├── BlurSearchDialog.py    # Blurry photo search dialog
+├── BurstPhotoManager.py   # Burst photo extraction & focus ranking engine (EXIF sub-second priority / mtime fallback)
+├── BurstPhotoDialog.py    # Burst photo comparison & cleanup dialog
+├── SimilarPhotoManager.py # Visual similarity clustering engine (64-bit dHash & Hamming distance)
+├── SimilarPhotoDialog.py  # Similar photo comparison & cleanup dialog
+├── main.py                # GUI main window (PySide6)
+├── README.md              # English documentation
+└── README.jp.md           # Japanese documentation
 ```
 
 ---
 
-## 🌟 主な機能
+## 🌟 Key Features
 
-### 1. 基本ファイルマネージャー機能
-- **ナビゲーション**: 「戻る」「進む」「親フォルダへ」「更新」履歴制御およびパス直接編集。
-- **ファイル一覧**: 列ソート（サイズ・タイムスタンプの正当な数値ソート）、複数選択、即時フィルタリング。
-- **コンテキストメニュー**: 開く、リネーム、削除（物理削除 / OSごみ箱移動）、新規フォルダ/ファイル作成。
-- **サイドバーショートカット**: ホーム・ピクチャ・ドキュメント・ダウンロード等のクイックアクセス。
+### 1. 🌐 Bilingual Support (English / Japanese)
+- Seamlessly toggle between **English** and **日本語** from the top navigation bar.
+- Selected language is persisted across application restarts.
+- Real-time UI and dialog localization across all windows, menus, and inspector panels.
 
-### 2. ⚡ SQLite 永続キャッシュ (`HashCacheManager`)
-- スキャンした画像の**知覚ハッシュ (dHash)**、**EXIF撮影日時**、および**ピントスコア**を `~/.cache/PhotoIsOutOfFocus/image_cache.db` に永続保存。
-- アプリ再起動後や2回目以降のスキャン時は、重い画像デコードや計算処理を完全にスキップして**即座に結果を表示**。
-- ファイルの更新日時（`mtime`）とファイルサイズ（`size`）が変化した場合は自動検出して安全に再計算。
+### 2. 📁 Comprehensive File Management
+- **Navigation**: Back, Forward, Up to parent directory, Refresh, and direct editable path bar.
+- **File List Table**: Accurate numeric sorting for file sizes and modification timestamps, multi-selection, and instant text filtering.
+- **Context Menus**: Open with default app, rename, move to OS trash / permanently delete, create new folders and text files.
+- **Sidebar Shortcuts**: Quick access to Home, Pictures, Documents, Downloads, Desktop, and Root.
 
-### 3. 🔍 ピンぼけ画像検索機能 (`BlurDetector` / `BlurSearchDialog`)
-- **ラプラシアン分散 (Laplacian Variance)** による画像解像感・鮮鋭度スコアの自動測定。
-- **顔検出 (Haar Cascade)** との連携：人物写真では顔領域のフォーカスを最優先評価。
-- **グリッド評価**: 背景ボケの写真を誤判定しないため、主要領域の最高スコアを判定に利用。
+### 3. ⚡ SQLite Persistent Cache (`HashCacheManager`)
+- Scanned image metadata, **perceptual hashes (dHash)**, **EXIF capture timestamps**, and **sharpness scores** are stored in `~/.cache/PhotoIsOutOfFocus/image_cache.db`.
+- Repeated scans skip heavy image decoding and Laplacian calculations for instant results.
+- Automatically invalidates and recalculates when file modification time (`mtime`) or file size changes.
 
-### 4. 📸 連続写真のピント判定・整理 (`BurstPhotoManager` / `BurstPhotoDialog`)
-- **EXIF 撮影日時解析**: 画像の EXIF `DateTimeOriginal` / `SubSecTimeOriginal` （無しの場合は `mtime`）を抽出し、指定時間差（標準 3.0秒以内）で連続撮影された写真を自動グループ化。
-- **最良1枚の自動保持**: グループ内で最もピントスコアの高い1枚を「🟢 残す (保持推奨)」に選定し、残りを「🗑️ 削除候補」に設定。
-- **グループ解散 & 次グループ自動遷移**: グループ解除やごみ箱移動を行った際、自動的に次のグループを選択表示。
+### 4. 🔍 Blurry Photo Search (`BlurDetector` / `BlurSearchDialog`)
+- Automated sharpness measurement using **Laplacian Variance**.
+- **Haar Cascade Face Detection**: Prioritizes facial focus in portrait photos so that intentional background blur (bokeh) is not falsely flagged.
+- **Grid Sharpness Evaluation**: Divides images into a 5x5 grid to evaluate focused subjects accurately even with shallow depth of field.
 
-### 5. 🖼️ 類似写真のピント判定・整理 (`SimilarPhotoManager` / `SimilarPhotoDialog`)
-- **知覚ハッシュ (64-bit dHash)**: 画像の明暗構造比較からハッシュ値を生成し、撮影日時に依存せず構図や被写体が似ている写真を高速検出。
-- **大サイズ写真表示**: カード表示を大サイズ (380x270px) & 2列配置に変更。サムネイルクリックで拡大プレビュー。
-- **ハミング距離クラスタリング**: 類似度閾値（標準: 10ビット以下の相違）に基づき類似写真群をグループ化。
+### 5. 📸 Burst Photo Organization (`BurstPhotoManager` / `BurstPhotoDialog`)
+- **EXIF Timestamp Analysis**: Extracts EXIF `DateTimeOriginal` and `SubSecTimeOriginal` (falling back to `mtime` if unavailable) to group photos captured within a configurable interval (default: <= 3.0s).
+- **Auto-Keep Best Shot**: Automatically marks the sharpest image as `🟢 Keep (Recommended)` and others as `🗑️ Delete Candidate`.
+- **Card Preview & Zoom**: High-resolution side-by-side cards with double-click / button zoom preview.
+- **Safe Batch Trash**: Moves unwanted candidates directly to the OS Trash (recoverable).
 
----
-
-## 🛠️ アーキテクチャと設計
-
-本プロジェクトは、GUI表示ロジックとファイル操作・画像解析ロジックを疎結合に保つため、**リポジトリパターン**および**オブジェクト指向**の設計を採用しています。
-
-- **Windows / macOS / Linux クロスプラットフォーム対応**: OS依存コードを含みません。
+### 6. 🖼️ Similar Photo Clustering (`SimilarPhotoManager` / `SimilarPhotoDialog`)
+- **Perceptual Difference Hashing (64-bit dHash)**: Computes image structural hash independent of file timestamps to detect similar compositions and poses.
+- **Hamming Distance Clustering**: Groups photos with configurable bit difference tolerances (1-30 bits).
+- **Auto-Select Best Photo**: Automatically recommends keeping the crispest version in each cluster.
 
 ---
 
-## 🚀 セットアップと実行
+## 🛠️ Architecture & Design
 
-### インストール手順
+- **Decoupled Architecture**: Clean separation between UI layers (`PySide6`), repository abstractions (`FilerRepository`), and domain algorithms (`BlurDetector`, `BurstPhotoManager`, `SimilarPhotoManager`).
+- **Cross-Platform Compatibility**: Fully compatible across Linux, Windows, and macOS (with native trash support via `send2trash` and `gio`).
 
-1. **依存パッケージのインストール**
+---
+
+## 🚀 Setup & Execution
+
+### Prerequisites & Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/amekusa03/DetectionOfJunkPhotos.git
+   cd DetectionOfJunkPhotos
+   ```
+
+2. **Install dependencies:**
    ```bash
    pip install PySide6 opencv-python pillow numpy send2trash
    ```
 
-2. **アプリケーションの実行**
+3. **Run the application:**
    ```bash
    python main.py
    ```
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License.

@@ -12,6 +12,7 @@ from FilerRepository import FilerRepository
 from SimilarPhotoManager import SimilarGroup, SimilarPhotoItem
 from BurstPhotoDialog import ImagePreviewDialog, ClickableLabel
 from BaseNodeObject import format_size
+from i18n import t, get_i18n_manager
 
 class SimilarSearchWorker(QThread):
     progress_signal = Signal(int, int, str)
@@ -53,138 +54,140 @@ class SimilarSearchWorker(QThread):
 class SimilarPhotoDialog(QDialog):
     def __init__(self, parent=None, initial_dir: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("🖼️ 類似写真ピント判定・整理 - Similar Photo Focus Manager")
+        self.setWindowTitle(t("similar_dialog.title"))
         self.resize(1200, 800)
-        
+
         self.initial_dir = initial_dir or os.getcwd()
         self.worker: Optional[SimilarSearchWorker] = None
         self.groups: List[SimilarGroup] = []
         self.current_group_index: int = -1
         self.repository = FilerRepository()
-        
+
         self.init_ui()
         self.apply_styles()
         
+        get_i18n_manager().language_changed.connect(self.retranslate_ui)
+
     def init_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(14, 14, 14, 14)
         main_layout.setSpacing(10)
-        
-        # 1. 検索設定パネル
+
+        # 1. Config Panel
         config_frame = QFrame()
         config_frame.setObjectName("configFrame")
         config_layout = QVBoxLayout(config_frame)
         config_layout.setContentsMargins(12, 10, 12, 10)
         config_layout.setSpacing(8)
-        
+
         dir_layout = QHBoxLayout()
-        dir_label = QLabel("対象フォルダ:")
-        dir_label.setStyleSheet("font-weight: bold;")
+        self.dir_label = QLabel(t("similar_dialog.target_folder"))
+        self.dir_label.setStyleSheet("font-weight: bold;")
         self.dir_edit = QLineEdit(self.initial_dir)
-        btn_browse = QPushButton("参照...")
-        btn_browse.setFixedWidth(80)
-        btn_browse.clicked.connect(self.browse_directory)
-        
-        dir_layout.addWidget(dir_label)
+        self.btn_browse = QPushButton(t("similar_dialog.browse"))
+        self.btn_browse.setFixedWidth(80)
+        self.btn_browse.clicked.connect(self.browse_directory)
+
+        dir_layout.addWidget(self.dir_label)
         dir_layout.addWidget(self.dir_edit)
-        dir_layout.addWidget(btn_browse)
+        dir_layout.addWidget(self.btn_browse)
         config_layout.addLayout(dir_layout)
-        
+
         opts_layout = QHBoxLayout()
         opts_layout.setSpacing(16)
-        
-        self.chk_recursive = QCheckBox("サブフォルダも含めて再帰検索する")
+
+        self.chk_recursive = QCheckBox(t("similar_dialog.recursive"))
         self.chk_recursive.setChecked(True)
-        
-        dist_label = QLabel("類似許容度(1-30ビット, 小さいほど厳密):")
+
+        self.dist_label = QLabel(t("similar_dialog.dist_label"))
         self.spin_hash_dist = QSpinBox()
         self.spin_hash_dist.setRange(1, 30)
         self.spin_hash_dist.setValue(10)
         self.spin_hash_dist.setFixedWidth(70)
-        
-        blur_label = QLabel("ピンぼけ参考閾値:")
+
+        self.blur_label = QLabel(t("similar_dialog.blur_label"))
         self.spin_blur_thresh = QDoubleSpinBox()
         self.spin_blur_thresh.setRange(1.0, 5000.0)
         self.spin_blur_thresh.setValue(100.0)
         self.spin_blur_thresh.setSingleStep(10.0)
         self.spin_blur_thresh.setFixedWidth(90)
 
-        self.btn_start = QPushButton("🔍 類似写真を検索・ピント判定")
+        self.btn_start = QPushButton(t("similar_dialog.btn_search"))
         self.btn_start.setObjectName("btnStart")
         self.btn_start.setFixedHeight(34)
         self.btn_start.clicked.connect(self.toggle_search)
 
         opts_layout.addWidget(self.chk_recursive)
-        opts_layout.addWidget(dist_label)
+        opts_layout.addWidget(self.dist_label)
         opts_layout.addWidget(self.spin_hash_dist)
-        opts_layout.addWidget(blur_label)
+        opts_layout.addWidget(self.blur_label)
         opts_layout.addWidget(self.spin_blur_thresh)
         opts_layout.addStretch()
         opts_layout.addWidget(self.btn_start)
-        
+
         config_layout.addLayout(opts_layout)
         main_layout.addWidget(config_frame, stretch=0)
-        
-        # 2. プログレスバー & ステータス表示
+
+        # 2. Progress & Status
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar, stretch=0)
-        
-        self.status_label = QLabel("対象フォルダを指定して「検索・ピント判定」を開始してください。")
+
+        self.status_label = QLabel(t("similar_dialog.initial_status"))
         self.status_label.setStyleSheet("color: #aaaaaa; font-style: italic; margin-left: 4px;")
         main_layout.addWidget(self.status_label, stretch=0)
-        
-        # 3. メインエリア (Splitter: stretch=1 で縦方向最大に展開)
+
+        # 3. Main Splitter
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        
+
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
-        
-        left_title = QLabel("📁 検出された類似写真グループ")
-        left_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #00bcd4;")
-        left_layout.addWidget(left_title)
-        
+
+        self.left_title = QLabel(t("similar_dialog.group_list_title"))
+        self.left_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #00bcd4;")
+        left_layout.addWidget(self.left_title)
+
         self.group_list = QListWidget()
         self.group_list.currentRowChanged.connect(self.on_group_selected)
         left_layout.addWidget(self.group_list)
-        
+
         splitter.addWidget(left_widget)
-        
+
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        
+
         group_action_frame = QFrame()
         group_action_frame.setObjectName("groupActionFrame")
         group_action_layout = QHBoxLayout(group_action_frame)
         group_action_layout.setContentsMargins(10, 8, 10, 8)
-        
-        self.group_detail_header = QLabel("左側のグループを選択してください")
+
+        self.group_detail_header = QLabel(t("similar_dialog.select_group_prompt"))
         self.group_detail_header.setStyleSheet("font-weight: bold; font-size: 13px; color: #ffffff;")
-        
-        self.btn_ungroup = QPushButton("🔓 グループ化を解除")
+
+        self.btn_ungroup = QPushButton(t("similar_dialog.dismiss_group"))
         self.btn_ungroup.setObjectName("btnUngroup")
         self.btn_ungroup.setFixedHeight(34)
         self.btn_ungroup.setEnabled(False)
         self.btn_ungroup.clicked.connect(self.ungroup_current_group)
 
-        self.btn_delete_group_items = QPushButton("🗑️ 選択中グループの不要ファイルを削除 (ごみ箱へ移動)")
+        self.btn_delete_group_items = QPushButton(t("similar_dialog.trash_selected"))
         self.btn_delete_group_items.setObjectName("btnDeleteGroupItems")
         self.btn_delete_group_items.setFixedHeight(34)
         self.btn_delete_group_items.setEnabled(False)
         self.btn_delete_group_items.clicked.connect(self.delete_current_group_trash_candidates)
-        
+
         group_action_layout.addWidget(self.group_detail_header, stretch=1)
         group_action_layout.addWidget(self.btn_ungroup)
         group_action_layout.addWidget(self.btn_delete_group_items)
-        
+
         right_layout.addWidget(group_action_frame)
-        
+
         self.cards_scroll = QScrollArea()
         self.cards_scroll.setWidgetResizable(True)
         self.cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -192,31 +195,49 @@ class SimilarPhotoDialog(QDialog):
         self.cards_grid = QGridLayout(self.cards_container)
         self.cards_grid.setSpacing(14)
         self.cards_scroll.setWidget(self.cards_container)
-        
+
         right_layout.addWidget(self.cards_scroll)
         splitter.addWidget(right_widget)
-        
+
         splitter.setSizes([260, 940])
         main_layout.addWidget(splitter, stretch=1)
-        
-        # 4. フッターエリア (stretch=0 で下部にコンパクト配置)
+
+        # 4. Footer
         footer_frame = QFrame()
         footer_frame.setObjectName("footerFrame")
         footer_layout = QHBoxLayout(footer_frame)
         footer_layout.setContentsMargins(12, 6, 12, 6)
-        
-        self.summary_label = QLabel("類似グループ数: 0")
+
+        self.summary_label = QLabel("")
         self.summary_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #e0e0e0;")
-        
-        btn_close = QPushButton("閉じる")
-        btn_close.setFixedHeight(34)
-        btn_close.clicked.connect(self.close)
-        
+
+        self.btn_close = QPushButton(t("burst_dialog.preview_close"))
+        self.btn_close.setFixedHeight(34)
+        self.btn_close.clicked.connect(self.close)
+
         footer_layout.addWidget(self.summary_label)
         footer_layout.addStretch()
-        footer_layout.addWidget(btn_close)
-        
+        footer_layout.addWidget(self.btn_close)
+
         main_layout.addWidget(footer_frame, stretch=0)
+        self.update_summary_footer()
+
+    def retranslate_ui(self):
+        self.setWindowTitle(t("similar_dialog.title"))
+        self.dir_label.setText(t("similar_dialog.target_folder"))
+        self.btn_browse.setText(t("similar_dialog.browse"))
+        self.chk_recursive.setText(t("similar_dialog.recursive"))
+        self.dist_label.setText(t("similar_dialog.dist_label"))
+        self.blur_label.setText(t("similar_dialog.blur_label"))
+        if not (self.worker and self.worker.isRunning()):
+            self.btn_start.setText(t("similar_dialog.btn_search"))
+        self.left_title.setText(t("similar_dialog.group_list_title"))
+        self.btn_ungroup.setText(t("similar_dialog.dismiss_group"))
+        self.btn_delete_group_items.setText(t("similar_dialog.trash_selected"))
+        self.btn_close.setText(t("burst_dialog.preview_close"))
+        self.update_group_list_ui()
+        self.update_group_header_and_button()
+        self.update_summary_footer()
 
     def apply_styles(self):
         self.setStyleSheet("""
@@ -252,11 +273,11 @@ class SimilarPhotoDialog(QDialog):
                 background-color: #4a4d51;
             }
             #btnStart {
-                background-color: #00838f;
+                background-color: #007acc;
                 font-weight: bold;
             }
             #btnStart:hover {
-                background-color: #0097a7;
+                background-color: #0098ff;
             }
             #btnUngroup {
                 background-color: #4a4d51;
@@ -295,180 +316,177 @@ class SimilarPhotoDialog(QDialog):
                 border-bottom: 1px solid #333333;
             }
             QListWidget::item:selected {
-                background-color: #005662;
+                background-color: #094771;
                 color: #ffffff;
             }
             QScrollArea {
                 background-color: #1e1e1e;
-                border: 1px solid #3d3d3d;
+                border: 1px solid #333333;
                 border-radius: 4px;
             }
         """)
 
     def browse_directory(self):
-        dir_path = QFileDialog.getExistingDirectory(self, "対象フォルダの選択", self.dir_edit.text())
+        dir_path = QFileDialog.getExistingDirectory(self, t("similar_dialog.target_folder"), self.dir_edit.text())
         if dir_path:
             self.dir_edit.setText(dir_path)
 
     def toggle_search(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.status_label.setText("検索を中断しています...")
+            self.status_label.setText(t("blur_dialog.cancelling"))
             return
 
-        target_dir = self.dir_edit.text().strip()
-        if not os.path.isdir(target_dir):
-            QMessageBox.warning(self, "エラー", "指定された対象フォルダが存在しません。")
+        dir_path = self.dir_edit.text().strip()
+        if not dir_path or not os.path.isdir(dir_path):
+            QMessageBox.warning(self, t("dialog.error"), t("dialog.cannot_open", path=dir_path))
             return
 
         self.groups.clear()
         self.group_list.clear()
         self.clear_cards_grid()
-        self.group_detail_header.setText("左側のグループを選択してください")
+        self.current_group_index = -1
+        self.group_detail_header.setText(t("similar_dialog.select_group_prompt"))
         self.btn_delete_group_items.setEnabled(False)
         self.btn_ungroup.setEnabled(False)
 
-        self.btn_start.setText("⏹️ 中止")
-        self.progress_bar.setVisible(True)
+        self.btn_start.setText(t("similar_dialog.btn_cancel"))
         self.progress_bar.setValue(0)
-        self.status_label.setText("類似画像を解析・比較中 (知覚ハッシュ dHash)...")
+        self.progress_bar.setVisible(True)
+        self.status_label.setText(t("blur_dialog.ready"))
 
-        self.worker = SimilarSearchWorker(
-            dir_path=target_dir,
-            recursive=self.chk_recursive.isChecked(),
-            max_hash_dist=self.spin_hash_dist.value(),
-            blur_threshold=self.spin_blur_thresh.value()
-        )
+        dist_val = self.spin_hash_dist.value()
+        blur_thresh = self.spin_blur_thresh.value()
+        recursive = self.chk_recursive.isChecked()
+
+        self.worker = SimilarSearchWorker(dir_path, recursive, dist_val, blur_thresh)
         self.worker.progress_signal.connect(self.on_worker_progress)
-        self.worker.result_signal.connect(self.on_worker_result)
+        self.worker.result_signal.connect(self.on_worker_results)
         self.worker.finished_signal.connect(self.on_worker_finished)
         self.worker.start()
 
     def on_worker_progress(self, current: int, total: int, msg: str):
         if total > 0:
-            pct = int((current / total) * 100)
-            self.progress_bar.setValue(pct)
+            self.progress_bar.setValue(int(current / total * 100))
         self.status_label.setText(f"[{current}/{total}] {msg}")
 
-    def on_worker_result(self, groups: List[SimilarGroup]):
+    def on_worker_results(self, groups: list):
         self.groups = groups
-        self.update_group_list_ui()
 
     def on_worker_finished(self):
-        self.btn_start.setText("🔍 類似写真を検索・ピント判定")
+        self.btn_start.setText(t("similar_dialog.btn_search"))
         self.progress_bar.setVisible(False)
-        
+
         if not self.groups:
-            self.status_label.setText("構図や見た目の似ている類似画像グループは見つかりませんでした。")
+            self.status_label.setText(t("similar_dialog.all_cleared"))
         else:
             total_items = sum(g.total_count for g in self.groups)
-            self.status_label.setText(
-                f"検索完了: {len(self.groups)} 個の類似写真グループを検出 (合計 {total_items} 枚)"
-            )
-            self.group_list.setCurrentRow(0)
+            self.status_label.setText(f"Found {len(self.groups)} group(s), {total_items} photo(s).")
 
-        self.update_summary_footer()
+        self.update_group_list_ui()
+        if self.groups:
+            self.group_list.setCurrentRow(0)
 
     def update_group_list_ui(self):
         self.group_list.clear()
-        for g in self.groups:
+        for idx, g in enumerate(self.groups):
             del_cnt = g.deletion_count
-            item_text = (
-                f"類似グループ {g.group_id}\n"
-                f"  全 {g.total_count} 枚  [保持 1枚 / 削除 {del_cnt}枚]"
-            )
-            widget_item = QListWidgetItem(item_text)
-            self.group_list.addItem(widget_item)
+            item_text = f"Similar Group {g.group_id} - {g.total_count} photos [Keep 1 / Delete {del_cnt}]"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, idx)
+            self.group_list.addItem(item)
+
+        self.update_summary_footer()
 
     def on_group_selected(self, row: int):
         if row < 0 or row >= len(self.groups):
             self.current_group_index = -1
             self.clear_cards_grid()
-            self.group_detail_header.setText("左側のグループを選択してください")
+            self.group_detail_header.setText(t("similar_dialog.select_group_prompt"))
             self.btn_delete_group_items.setEnabled(False)
             self.btn_ungroup.setEnabled(False)
             return
 
         self.current_group_index = row
         group = self.groups[row]
-        
-        del_cnt = group.deletion_count
-        del_size = sum(
-            os.path.getsize(it.image_path) for it in group.items 
-            if it.marked_for_deletion and os.path.exists(it.image_path)
-        )
-        
-        self.group_detail_header.setText(
-            f"類似グループ {group.group_id} : 全 {group.total_count} 枚 | 削除対象 {del_cnt} 枚 ({format_size(del_size)})"
-        )
-        self.btn_delete_group_items.setEnabled(del_cnt > 0)
-        self.btn_ungroup.setEnabled(True)
-        self.render_group_cards(group)
+        self.display_group_cards(group)
+        self.update_group_header_and_button()
 
     def clear_cards_grid(self):
         while self.cards_grid.count():
-            child = self.cards_grid.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            item = self.cards_grid.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
-    def render_group_cards(self, group: SimilarGroup):
+    def display_group_cards(self, group: SimilarGroup):
         self.clear_cards_grid()
-        
         cols = 2
-        for idx, item in enumerate(group.items):
-            card = self.create_photo_card(group, item)
-            r = idx // cols
-            c = idx % cols
-            self.cards_grid.addWidget(card, r, c)
+        for i, item in enumerate(group.items):
+            row = i // cols
+            col = i % cols
+            card = self.create_photo_card(item, group)
+            self.cards_grid.addWidget(card, row, col)
 
-    def create_photo_card(self, group: SimilarGroup, item: SimilarPhotoItem) -> QWidget:
+    def create_photo_card(self, item: SimilarPhotoItem, group: SimilarGroup) -> QWidget:
         card = QFrame()
-        card.setStyleSheet("""
-            QFrame {
-                background-color: #2b2b2c;
-                border: 1px solid #444444;
-                border-radius: 8px;
-            }
-        """)
+        card.setFrameShape(QFrame.Shape.StyledPanel)
+        
+        if item.is_recommended_keep:
+            card.setStyleSheet("""
+                QFrame {
+                    background-color: #1a2f3a;
+                    border: 2px solid #00bcd4;
+                    border-radius: 8px;
+                    padding: 8px;
+                }
+            """)
+        else:
+            card.setStyleSheet("""
+                QFrame {
+                    background-color: #2b2b2b;
+                    border: 1px solid #444444;
+                    border-radius: 8px;
+                    padding: 8px;
+                }
+            """)
+
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
-        
-        # サムネイル画像：固定高さ220px、横幅レスポンシブ拡大
+
         lbl_thumb = ClickableLabel()
-        lbl_thumb.setFixedHeight(220)
-        lbl_thumb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         lbl_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_thumb.setFixedSize(380, 270)
+        lbl_thumb.setStyleSheet("background-color: #151515; border-radius: 4px;")
         lbl_thumb.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        lbl_thumb.setToolTip("クリックすると拡大プレビュー表示します")
-        lbl_thumb.setStyleSheet("background-color: #1a1a1a; border-radius: 6px;")
-        
+        lbl_thumb.setToolTip(t("burst_dialog.card_click_preview"))
+        lbl_thumb.clicked.connect(lambda it=item: self.open_preview(it))
+
         pixmap = QPixmap(item.image_path)
         if not pixmap.isNull():
-            scaled = pixmap.scaled(420, 220, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            scaled = pixmap.scaled(380, 270, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             lbl_thumb.setPixmap(scaled)
         else:
             lbl_thumb.setText("No Image")
-            
-        lbl_thumb.clicked.connect(lambda it=item: self.open_preview(it))
+
         layout.addWidget(lbl_thumb)
 
         fname = os.path.basename(item.image_path)
         lbl_name = QLabel(fname)
         lbl_name.setToolTip(item.image_path)
         lbl_name.setStyleSheet("font-weight: bold; font-size: 12px; color: #ffffff;")
-        lbl_name.setWordWrap(True)
         layout.addWidget(lbl_name)
-        
+
         score_layout = QHBoxLayout()
-        lbl_score = QLabel(f"スコア: {item.composite_score}")
-        lbl_score.setStyleSheet("font-weight: bold; color: #4fc3f7; font-size: 13px;")
+        lbl_score = QLabel(f"{t('burst_dialog.card_score')} {item.composite_score}")
+        lbl_score.setStyleSheet("font-size: 12px; color: #2196F3; font-weight: bold;")
         
         if item.is_recommended_keep:
-            lbl_badge = QLabel("🎯 ピント最良")
-            lbl_badge.setStyleSheet("background-color: #2e7d32; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px;")
+            lbl_badge = QLabel(t("similar_dialog.keep_best_auto"))
+            lbl_badge.setStyleSheet("background-color: #00838f; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px;")
         else:
-            lbl_badge = QLabel("⚠️ 類似/補足")
+            lbl_badge = QLabel(t("similar_dialog.trash_selected"))
             lbl_badge.setStyleSheet("background-color: #e65100; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px;")
 
         score_layout.addWidget(lbl_score)
@@ -478,8 +496,8 @@ class SimilarPhotoDialog(QDialog):
 
         btn_group = QButtonGroup(card)
         
-        rb_keep = QRadioButton("🟢 残す (保持)")
-        rb_trash = QRadioButton("🗑️ 削除候補 (ごみ箱)")
+        rb_keep = QRadioButton(t("burst_dialog.card_keep"))
+        rb_trash = QRadioButton(t("burst_dialog.card_trash"))
         
         rb_keep.setStyleSheet("color: #a5d6a7; font-weight: bold; font-size: 12px;")
         rb_trash.setStyleSheet("color: #ef9a9a; font-weight: bold; font-size: 12px;")
@@ -509,7 +527,7 @@ class SimilarPhotoDialog(QDialog):
         radio_layout.addStretch()
         layout.addLayout(radio_layout)
 
-        btn_preview = QPushButton("🔍 拡大プレビュー表示")
+        btn_preview = QPushButton(t("burst_dialog.card_click_preview"))
         btn_preview.setFixedHeight(28)
         btn_preview.setStyleSheet("font-size: 12px; padding: 4px;")
         btn_preview.clicked.connect(lambda checked=False, it=item: self.open_preview(it))
@@ -542,7 +560,7 @@ class SimilarPhotoDialog(QDialog):
             if it.marked_for_deletion and os.path.exists(it.image_path)
         )
         self.group_detail_header.setText(
-            f"類似グループ {group.group_id} : 全 {group.total_count} 枚 | 削除対象 {del_cnt} 枚 ({format_size(del_size)})"
+            f"Similar Group {group.group_id} : Total {group.total_count} photos | Delete {del_cnt} ({format_size(del_size)})"
         )
         self.btn_delete_group_items.setEnabled(del_cnt > 0)
         self.btn_ungroup.setEnabled(True)
@@ -551,10 +569,7 @@ class SimilarPhotoDialog(QDialog):
         curr = self.group_list.currentRow()
         for idx, g in enumerate(self.groups):
             del_cnt = g.deletion_count
-            item_text = (
-                f"類似グループ {g.group_id}\n"
-                f"  全 {g.total_count} 枚  [保持 1枚 / 削除 {del_cnt}枚]"
-            )
+            item_text = f"Similar Group {g.group_id} - {g.total_count} photos [Keep 1 / Delete {del_cnt}]"
             item = self.group_list.item(idx)
             if item:
                 item.setText(item_text)
@@ -565,7 +580,7 @@ class SimilarPhotoDialog(QDialog):
         total_groups = len(self.groups)
         total_items = sum(g.total_count for g in self.groups)
         self.summary_label.setText(
-            f"検出類似グループ: {total_groups}グループ (計 {total_items}枚)"
+            f"Similar Groups: {total_groups} (Total {total_items} photos)"
         )
 
     def ungroup_current_group(self):
@@ -576,8 +591,8 @@ class SimilarPhotoDialog(QDialog):
         group = self.groups[target_idx]
 
         reply = QMessageBox.question(
-            self, "グループ化を解除",
-            f"類似グループ {group.group_id} のグループ化を解除しますか？\n（ファイルは削除されず、グループ一覧から除外されます）",
+            self, t("similar_dialog.dismiss_group"),
+            f"Dismiss Similar Group {group.group_id}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes
         )
@@ -597,7 +612,7 @@ class SimilarPhotoDialog(QDialog):
         else:
             self.current_group_index = -1
             self.clear_cards_grid()
-            self.group_detail_header.setText("左側のグループを選択してください")
+            self.group_detail_header.setText(t("similar_dialog.select_group_prompt"))
             self.btn_delete_group_items.setEnabled(False)
             self.btn_ungroup.setEnabled(False)
 
@@ -612,19 +627,14 @@ class SimilarPhotoDialog(QDialog):
         del_items = [it for it in group.items if it.marked_for_deletion and os.path.exists(it.image_path)]
 
         if not del_items:
-            QMessageBox.information(self, "通知", "このグループで削除対象に設定されたファイルはありません。")
+            QMessageBox.information(self, "Info", t("similar_dialog.all_cleared"))
             return
 
         total_size = sum(os.path.getsize(it.image_path) for it in del_items if os.path.exists(it.image_path))
 
-        msg = (
-            f"類似グループ {group.group_id} の削除対象 {len(del_items)} 個のファイルをOSのごみ箱へ移動します。\n"
-            f"容量: {format_size(total_size)}\n\n"
-            f"※ 削除されたファイルはごみ箱から復元可能です。\n"
-            f"移動しますか？"
-        )
+        msg = t("similar_dialog.group_trash_confirm", count=len(del_items), group_id=group.group_id) + f"\nSize: {format_size(total_size)}"
         reply = QMessageBox.question(
-            self, "選択中類似グループのごみ箱移動", msg,
+            self, t("similar_dialog.trash_selected"), msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes
         )
@@ -661,13 +671,13 @@ class SimilarPhotoDialog(QDialog):
         else:
             self.current_group_index = -1
             self.clear_cards_grid()
-            self.group_detail_header.setText("左側のグループを選択してください")
+            self.group_detail_header.setText(t("similar_dialog.select_group_prompt"))
             self.btn_delete_group_items.setEnabled(False)
             self.btn_ungroup.setEnabled(False)
 
         self.update_summary_footer()
 
-        result_msg = f"類似グループから {success_count} 個の不要ファイルを正常にごみ箱へ移動しました。"
+        result_msg = t("similar_dialog.trash_success", count=success_count)
         if failed_count > 0:
-            result_msg += f"\n({failed_count} 個のファイル移動に失敗しました)"
-        QMessageBox.information(self, "完了", result_msg)
+            result_msg += f"\n({failed_count} items failed)"
+        QMessageBox.information(self, "Done", result_msg)

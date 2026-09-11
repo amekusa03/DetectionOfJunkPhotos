@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from FilerRepository import FilerRepository
 from BlurDetector import BlurResult, FaceBlurDetail
 from BaseNodeObject import ImageNodeObject, format_size
+from i18n import t, get_i18n_manager
 
 class BlurSearchWorker(QThread):
     progress_signal = Signal(int, int, str)  # current, total, current_file
@@ -49,7 +50,7 @@ class BlurSearchWorker(QThread):
 class BlurSearchDialog(QDialog):
     def __init__(self, parent=None, initial_dir: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("🔍 ピンぼけ画像検索 - Out of Focus Photo Finder")
+        self.setWindowTitle(t("blur_dialog.title"))
         self.resize(950, 650)
         
         self.initial_dir = initial_dir or os.getcwd()
@@ -59,51 +60,53 @@ class BlurSearchDialog(QDialog):
         self.init_ui()
         self.apply_styles()
         
+        get_i18n_manager().language_changed.connect(self.retranslate_ui)
+        
     def init_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(12)
         
-        # 1. 検索設定パネル
+        # 1. Config Panel
         config_frame = QFrame()
         config_frame.setObjectName("configFrame")
         config_layout = QVBoxLayout(config_frame)
         config_layout.setContentsMargins(12, 12, 12, 12)
         config_layout.setSpacing(10)
         
-        # ディレクトリ選択行
+        # Directory Selection Row
         dir_layout = QHBoxLayout()
-        dir_label = QLabel("対象フォルダ:")
-        dir_label.setStyleSheet("font-weight: bold;")
+        self.dir_label = QLabel(t("blur_dialog.target_folder"))
+        self.dir_label.setStyleSheet("font-weight: bold;")
         self.dir_edit = QLineEdit(self.initial_dir)
-        btn_browse = QPushButton("参照...")
-        btn_browse.setFixedWidth(80)
-        btn_browse.clicked.connect(self.browse_directory)
+        self.btn_browse = QPushButton(t("blur_dialog.browse"))
+        self.btn_browse.setFixedWidth(90)
+        self.btn_browse.clicked.connect(self.browse_directory)
         
-        dir_layout.addWidget(dir_label)
+        dir_layout.addWidget(self.dir_label)
         dir_layout.addWidget(self.dir_edit)
-        dir_layout.addWidget(btn_browse)
+        dir_layout.addWidget(self.btn_browse)
         config_layout.addLayout(dir_layout)
         
-        # オプション行
+        # Options Row
         opts_layout = QHBoxLayout()
         
-        self.chk_recursive = QCheckBox("サブフォルダも含めて再帰検索する")
+        self.chk_recursive = QCheckBox(t("blur_dialog.recursive"))
         self.chk_recursive.setChecked(True)
         
-        thresh_label = QLabel("判定閾値 (Score < Threshold でピンぼけ):")
+        self.thresh_label = QLabel(t("blur_dialog.threshold_label"))
         self.spin_threshold = QDoubleSpinBox()
         self.spin_threshold.setRange(1.0, 5000.0)
         self.spin_threshold.setValue(100.0)
         self.spin_threshold.setSingleStep(10.0)
         self.spin_threshold.setFixedWidth(100)
         
-        self.btn_search = QPushButton("🔍 検索開始")
+        self.btn_search = QPushButton(t("blur_dialog.btn_search"))
         self.btn_search.setObjectName("btnSearch")
         self.btn_search.setFixedHeight(32)
         self.btn_search.clicked.connect(self.start_search)
         
-        self.btn_cancel = QPushButton("⏹️ キャンセル")
+        self.btn_cancel = QPushButton(t("blur_dialog.btn_cancel"))
         self.btn_cancel.setObjectName("btnCancel")
         self.btn_cancel.setFixedHeight(32)
         self.btn_cancel.setEnabled(False)
@@ -111,7 +114,7 @@ class BlurSearchDialog(QDialog):
         
         opts_layout.addWidget(self.chk_recursive)
         opts_layout.addSpacing(20)
-        opts_layout.addWidget(thresh_label)
+        opts_layout.addWidget(self.thresh_label)
         opts_layout.addWidget(self.spin_threshold)
         opts_layout.addStretch()
         opts_layout.addWidget(self.btn_search)
@@ -120,27 +123,27 @@ class BlurSearchDialog(QDialog):
         config_layout.addLayout(opts_layout)
         main_layout.addWidget(config_frame)
         
-        # 2. 進捗表示
+        # 2. Progress
         progress_layout = QVBoxLayout()
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFixedHeight(18)
         
-        self.lbl_status = QLabel("検索条件を指定して「検索開始」を押してください。")
+        self.lbl_status = QLabel(t("blur_dialog.initial_status"))
         self.lbl_status.setStyleSheet("color: #a9b1d6;")
         
         progress_layout.addWidget(self.progress_bar)
         progress_layout.addWidget(self.lbl_status)
         main_layout.addLayout(progress_layout)
         
-        # 3. メインコンテンツ (スプリッター: 左結果テーブル, 右プレビュー詳細)
+        # 3. Main Splitter
         splitter = QSplitter(Qt.Horizontal)
         
-        # 左側: テーブル
+        # Table
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["ファイル名", "総合スコア", "顔検出", "相対パス / 場所"])
+        self.update_table_headers()
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -153,16 +156,16 @@ class BlurSearchDialog(QDialog):
         
         splitter.addWidget(self.table)
         
-        # 右側: プレビュー / 詳細情報
+        # Preview / Details
         preview_panel = QFrame()
         preview_panel.setObjectName("previewPanel")
         preview_layout = QVBoxLayout(preview_panel)
         preview_layout.setContentsMargins(12, 12, 12, 12)
         
-        lbl_preview_title = QLabel("🖼️ 選択画像のプレビュー")
-        lbl_preview_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #7aa2f7;")
+        self.lbl_preview_title = QLabel(t("preview.title"))
+        self.lbl_preview_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #7aa2f7;")
         
-        self.lbl_image_preview = QLabel("画像を選択してください")
+        self.lbl_image_preview = QLabel(t("blur_dialog.select_image"))
         self.lbl_image_preview.setAlignment(Qt.AlignCenter)
         self.lbl_image_preview.setStyleSheet("border: 1px dashed #414868; background-color: #16161e; border-radius: 6px;")
         self.lbl_image_preview.setMinimumSize(220, 200)
@@ -171,17 +174,16 @@ class BlurSearchDialog(QDialog):
         self.lbl_detail_info.setWordWrap(True)
         self.lbl_detail_info.setAlignment(Qt.AlignTop)
         
-        # ボタン群
         btn_action_layout = QVBoxLayout()
-        self.btn_open_file = QPushButton("📂 ファイルを開く")
+        self.btn_open_file = QPushButton(t("blur_dialog.btn_open"))
         self.btn_open_file.setEnabled(False)
         self.btn_open_file.clicked.connect(self.open_selected_file)
         
-        self.btn_show_in_main = QPushButton("🎯 メイン画面でこの位置を開く")
+        self.btn_show_in_main = QPushButton(t("blur_dialog.btn_show_in_main"))
         self.btn_show_in_main.setEnabled(False)
         self.btn_show_in_main.clicked.connect(self.navigate_main_window)
         
-        self.btn_detail_dialog = QPushButton("📷 ピンぼけ詳細判定を表示")
+        self.btn_detail_dialog = QPushButton(t("blur_dialog.btn_detail"))
         self.btn_detail_dialog.setEnabled(False)
         self.btn_detail_dialog.clicked.connect(self.show_detail_dialog)
         
@@ -189,7 +191,7 @@ class BlurSearchDialog(QDialog):
         btn_action_layout.addWidget(self.btn_show_in_main)
         btn_action_layout.addWidget(self.btn_detail_dialog)
         
-        preview_layout.addWidget(lbl_preview_title)
+        preview_layout.addWidget(self.lbl_preview_title)
         preview_layout.addWidget(self.lbl_image_preview, 1)
         preview_layout.addWidget(self.lbl_detail_info)
         preview_layout.addLayout(btn_action_layout)
@@ -198,6 +200,29 @@ class BlurSearchDialog(QDialog):
         splitter.setSizes([600, 320])
         
         main_layout.addWidget(splitter, 1)
+
+    def update_table_headers(self):
+        self.table.setHorizontalHeaderLabels([
+            t("blur_dialog.col_file"),
+            t("blur_dialog.col_score"),
+            t("blur_dialog.col_face"),
+            t("blur_dialog.col_path")
+        ])
+
+    def retranslate_ui(self):
+        self.setWindowTitle(t("blur_dialog.title"))
+        self.dir_label.setText(t("blur_dialog.target_folder"))
+        self.btn_browse.setText(t("blur_dialog.browse"))
+        self.chk_recursive.setText(t("blur_dialog.recursive"))
+        self.thresh_label.setText(t("blur_dialog.threshold_label"))
+        self.btn_search.setText(t("blur_dialog.btn_search"))
+        self.btn_cancel.setText(t("blur_dialog.btn_cancel"))
+        self.lbl_preview_title.setText(t("preview.title"))
+        self.btn_open_file.setText(t("blur_dialog.btn_open"))
+        self.btn_show_in_main.setText(t("blur_dialog.btn_show_in_main"))
+        self.btn_detail_dialog.setText(t("blur_dialog.btn_detail"))
+        self.update_table_headers()
+        self.on_selection_changed()
 
     def apply_styles(self):
         self.setStyleSheet("""
@@ -254,10 +279,10 @@ class BlurSearchDialog(QDialog):
                 background-color: #ff9e3b;
             }
             QProgressBar {
-                background-color: #16161e;
                 border: 1px solid #414868;
                 border-radius: 4px;
                 text-align: center;
+                background-color: #16161e;
                 color: #c0caf5;
             }
             QProgressBar::chunk {
@@ -265,7 +290,7 @@ class BlurSearchDialog(QDialog):
                 border-radius: 3px;
             }
             QTableWidget {
-                background-color: #16161e;
+                background-color: #1a1b26;
                 color: #c0caf5;
                 gridline-color: #24283b;
                 border: 1px solid #24283b;
@@ -285,14 +310,14 @@ class BlurSearchDialog(QDialog):
         """)
 
     def browse_directory(self):
-        dir_path = QFileDialog.getExistingDirectory(self, "対象フォルダを選択", self.dir_edit.text())
+        dir_path = QFileDialog.getExistingDirectory(self, t("blur_dialog.target_folder"), self.dir_edit.text())
         if dir_path:
             self.dir_edit.setText(dir_path)
 
     def start_search(self):
         dir_path = self.dir_edit.text().strip()
         if not dir_path or not os.path.isdir(dir_path):
-            QMessageBox.warning(self, "エラー", "有効なフォルダを選択してください。")
+            QMessageBox.warning(self, t("dialog.error"), t("dialog.cannot_open", path=dir_path))
             return
             
         self.btn_search.setEnabled(False)
@@ -302,7 +327,7 @@ class BlurSearchDialog(QDialog):
         self.clear_preview()
         
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("検索準備中...")
+        self.lbl_status.setText(t("blur_dialog.ready"))
         
         recursive = self.chk_recursive.isChecked()
         threshold = self.spin_threshold.value()
@@ -317,7 +342,7 @@ class BlurSearchDialog(QDialog):
     def cancel_search(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.lbl_status.setText("検索をキャンセル中...")
+            self.lbl_status.setText(t("blur_dialog.cancelling"))
             self.btn_cancel.setEnabled(False)
 
     def on_progress(self, current: int, total: int, current_file: str):
@@ -326,28 +351,24 @@ class BlurSearchDialog(QDialog):
             self.progress_bar.setValue(val)
             rel_path = os.path.basename(current_file)
             found_count = len(self.results)
-            self.lbl_status.setText(f"スキャン中... ({current}/{total}) [発見: {found_count}件]: {rel_path}")
+            self.lbl_status.setText(t("blur_dialog.scanning", current=current, total=total, found=found_count, file=rel_path))
 
     def _add_result_row(self, res: BlurResult):
         base_dir = self.dir_edit.text().strip()
         row = self.table.rowCount()
         self.table.insertRow(row)
         
-        # ファイル名
         filename = os.path.basename(res.image_path)
         item_name = QTableWidgetItem(f"🔴 {filename}")
         item_name.setData(Qt.UserRole, res)
         
-        # 総合スコア
         item_score = QTableWidgetItem(f"{res.overall_score:.2f}")
         item_score.setTextAlignment(Qt.AlignCenter)
         
-        # 顔検出
-        face_str = f"あり ({res.face_count}個)" if res.face_detected else "なし"
+        face_str = t("blur_dialog.face_present", count=res.face_count) if res.face_detected else t("blur_dialog.face_none")
         item_face = QTableWidgetItem(face_str)
         item_face.setTextAlignment(Qt.AlignCenter)
         
-        # 相対パス
         try:
             rel_path = os.path.relpath(res.image_path, base_dir)
         except Exception:
@@ -365,7 +386,6 @@ class BlurSearchDialog(QDialog):
 
     def on_results_received(self, results: list):
         self.results = results
-        # リアルタイムで既に追加されている場合は何もしないが、念のため未追加結果があれば補正
         if self.table.rowCount() == 0 and len(results) > 0:
             for res in results:
                 self._add_result_row(res)
@@ -376,11 +396,11 @@ class BlurSearchDialog(QDialog):
         count = len(self.results)
         
         if self.worker and self.worker.is_cancelled():
-            self.lbl_status.setText(f"検索がキャンセルされました。(発見: {count} 件)")
+            self.lbl_status.setText(t("blur_dialog.finished_cancelled", count=count))
             self.progress_bar.setValue(0)
         else:
             self.progress_bar.setValue(100)
-            self.lbl_status.setText(f"検索完了: ピンぼけ画像が {count} 件見つかりました。")
+            self.lbl_status.setText(t("blur_dialog.finished_done", count=count))
 
     def get_selected_result(self) -> BlurResult:
         row = self.table.currentRow()
@@ -399,7 +419,6 @@ class BlurSearchDialog(QDialog):
         self.btn_show_in_main.setEnabled(True)
         self.btn_detail_dialog.setEnabled(True)
         
-        # プレビュー表示
         pixmap = QPixmap(res.image_path)
         if not pixmap.isNull():
             scaled = pixmap.scaled(
@@ -409,27 +428,26 @@ class BlurSearchDialog(QDialog):
             )
             self.lbl_image_preview.setPixmap(scaled)
         else:
-            self.lbl_image_preview.setText("プレビュー読み込み失敗")
+            self.lbl_image_preview.setText(t("blur_dialog.preview_fail"))
             
-        # 詳細情報テキスト
-        info = f"<b>ファイル:</b> {os.path.basename(res.image_path)}<br>"
+        info = f"<b>{t('blur_dialog.lbl_file')}</b> {os.path.basename(res.image_path)}<br>"
         status_color = "#f7768e" if res.is_blurry else "#9ece6a"
-        info += f"<b>判定:</b> <font color='{status_color}'><b>{res.status_text} {"🔴" if res.is_blurry else "🟢"}</b></font><br>"
+        info += f"<b>{t('blur_dialog.lbl_judgment')}</b> <font color='{status_color}'><b>{res.status_text} {'🔴' if res.is_blurry else '🟢'}</b></font><br>"
         if getattr(res, "reason_text", ""):
-            info += f"<b>判定理由:</b> {res.reason_text}<br>"
-        info += f"<b>全体スコア:</b> {res.overall_score:.2f} (閾値: {res.threshold})<br>"
+            info += f"<b>{t('blur_dialog.lbl_reason')}</b> {res.reason_text}<br>"
+        info += f"<b>{t('blur_dialog.lbl_score')}</b> {res.overall_score:.2f} (Threshold: {res.threshold})<br>"
         if hasattr(res, "max_grid_score"):
-            info += f"<b>最高領域スコア:</b> {res.max_grid_score:.2f}<br>"
+            info += f"<b>{t('blur_dialog.lbl_max_grid')}</b> {res.max_grid_score:.2f}<br>"
         if res.face_detected:
-            info += f"<b>顔検出:</b> {res.face_count} 個の顔領域をチェック済み<br>"
+            info += f"<b>{t('blur_dialog.lbl_face')}</b> {t('blur_dialog.face_yes', count=res.face_count)}<br>"
         else:
-            info += f"<b>顔検出:</b> なし (グリッド領域解析により自動評価)<br>"
+            info += f"<b>{t('blur_dialog.lbl_face')}</b> {t('blur_dialog.face_no')}<br>"
             
         self.lbl_detail_info.setText(info)
 
     def clear_preview(self):
         self.lbl_image_preview.clear()
-        self.lbl_image_preview.setText("画像を選択してください")
+        self.lbl_image_preview.setText(t("blur_dialog.select_image"))
         self.lbl_detail_info.setText("")
         self.btn_open_file.setEnabled(False)
         self.btn_show_in_main.setEnabled(False)
@@ -453,7 +471,6 @@ class BlurSearchDialog(QDialog):
             parent_dir = os.path.dirname(res.image_path)
             if hasattr(self.parent(), 'navigate_to'):
                 self.parent().navigate_to(parent_dir)
-                # 親ウィンドウのテーブルで対象ファイルを選択
                 if hasattr(self.parent(), 'select_file_by_path'):
                     self.parent().select_file_by_path(res.image_path)
             self.accept()
@@ -463,4 +480,3 @@ class BlurSearchDialog(QDialog):
         if res and self.parent() and hasattr(self.parent(), 'show_blur_dialog'):
             node = ImageNodeObject(res.image_path)
             self.parent().show_blur_dialog(node)
-
